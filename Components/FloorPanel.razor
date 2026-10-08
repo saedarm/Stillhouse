@@ -1,0 +1,98 @@
+@{
+    var c = House.Climate;
+    int d = c.DayIndex(Date);
+    double t = WeekMean(d), swing = c.FloorSwing[Floor, d], rh = c.FloorRh[Floor, d];
+    var (lo, hi, rhYear) = YearStats();
+    var barrels = House.Barrels.Where(b => b.Floor == Floor && b.At(c, Date) is not null).OrderBy(b => b.FillDate).ToList();
+}
+
+<section class="panel floor-panel">
+    <h2>Floor @(Floor + 1)<span>@Names[Floor]</span></h2>
+
+    <dl class="facts">
+        <div><dt>This week</dt><dd>@($"{t:0}°F")</dd></div>
+        <div><dt>Day to night</dt><dd>@($"±{swing:0}°")</dd></div>
+        <div><dt>Humidity</dt><dd>@($"{rh:P0}")</dd></div>
+        <div><dt>This year</dt><dd>@($"{lo:0}–{hi:0}°")</dd></div>
+    </dl>
+
+    <p class="explain">
+        @if (rhYear < 0.6)
+        {
+            <text>The air up here averages @($"{rhYear:P0}") humidity. Dry air pulls water through the staves faster than alcohol, so proof <strong>climbs</strong> the longer a barrel sits.</text>
+        }
+        else if (rhYear > 0.66)
+        {
+            <text>The air down here averages @($"{rhYear:P0}") humidity. Damp air takes alcohol faster than water, so proof <strong>drifts down</strong> and the barrels age slowly and gently.</text>
+        }
+        else
+        {
+            <text>Humidity here averages @($"{rhYear:P0}"), close to the balance point where water and alcohol leave at the same rate. Proof barely moves.</text>
+        }
+    </p>
+
+    @if (barrels.Count == 0)
+    {
+        <p class="empty-note">No barrels on this floor yet on @Date.ToString("MMM d, yyyy"). Scrub forward to see them rolled in.</p>
+    }
+    else
+    {
+        <table class="ledger">
+            <thead><tr><th>Barrel</th><th>Age</th><th>Proof</th><th>Gal</th><th>Peak</th></tr></thead>
+            <tbody>
+                @foreach (var b in barrels)
+                {
+                    var s = b.At(c, Date)!.Value;
+                    var (pk, _) = b.Peaks();
+                    double toPeak = pk * 7 / 365.25 - b.AgeYears(Date);
+                    var bb = b;
+                    <tr @onclick="() => OnBarrel.InvokeAsync(bb)" tabindex="0"
+                        @onkeydown="e => Key(e, bb)">
+                        <td class="serial">@b.Serial</td>
+                        <td>@Draw.Years(b.AgeYears(Date))</td>
+                        <td>@($"{s.Proof:0.0}")</td>
+                        <td>@($"{s.Volume:0.0}")</td>
+                        <td class="@(Math.Abs(toPeak) < 1 ? "ready" : "")">
+                            @(toPeak > 1 ? $"in {toPeak:0.0} yrs" : toPeak < -1 ? $"{-toPeak:0.0} yrs ago" : "now")
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Rickhouse House { get; set; } = default!;
+    [Parameter] public int Floor { get; set; }
+    [Parameter] public DateOnly Date { get; set; }
+    [Parameter] public EventCallback<Barrel> OnBarrel { get; set; }
+
+    Task Key(KeyboardEventArgs e, Barrel b) =>
+        e.Key is "Enter" or " " ? OnBarrel.InvokeAsync(b) : Task.CompletedTask;
+
+    static readonly string[] Names =
+        ["on the gravel", "low and damp", "lower middle", "the middle", "upper middle", "hot and dry", "under the tin roof"];
+
+    double WeekMean(int d)
+    {
+        double s = 0; int n = 0;
+        for (int i = Math.Max(0, d - 6); i <= d; i++) { s += House.Climate.FloorTemp[Floor, i]; n++; }
+        return s / n;
+    }
+
+    (double lo, double hi, double rh) YearStats()
+    {
+        var c = House.Climate;
+        int d0 = c.DayIndex(new DateOnly(Date.Year, 1, 1)), d1 = c.DayIndex(new DateOnly(Date.Year, 12, 31));
+        double lo = 999, hi = -999, rh = 0;
+        for (int d = d0; d <= d1; d += 7)
+        {
+            double s = 0;
+            for (int i = 0; i < 7; i++) s += c.FloorTemp[Floor, Math.Min(d + i, c.Days - 1)];
+            lo = Math.Min(lo, s / 7); hi = Math.Max(hi, s / 7);
+        }
+        for (int d = d0; d <= d1; d++) rh += c.FloorRh[Floor, d];
+        return (lo, hi, rh / (d1 - d0 + 1));
+    }
+}

@@ -1,0 +1,134 @@
+@{
+    var r = BlendResult.Compute(House, Picks, Date, barrelProof ? null : bottleProof);
+}
+
+<section class="bench">
+    <header class="bench-head">
+        <h2>Blend bench</h2>
+        <div class="bench-actions">
+            <button @onclick="OnAddReady">Add every barrel in its peak window</button>
+            @if (Picks.Count > 0)
+            {
+                <button class="link" @onclick="OnClear">Clear the bench</button>
+            }
+        </div>
+    </header>
+
+    @if (r is null)
+    {
+        <p class="empty-note">
+            Nothing on the bench for @Date.ToString("MMM d, yyyy"). Open a barrel and choose <em>Add to blend</em>,
+            or add every barrel that's in its peak window right now.
+        </p>
+    }
+    else
+    {
+        <div class="bench-grid">
+            <div class="bench-picks">
+                <table class="ledger">
+                    <thead><tr><th>Barrel</th><th>Floor</th><th>Age</th><th>Proof</th><th>Gal</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var b in Picks.OrderBy(b => b.Floor).ThenBy(b => b.FillDate))
+                        {
+                            var s = b.At(House.Climate, Date);
+                            var bb = b;
+                            <tr class="@(s is null ? "is-unfilled" : "")">
+                                <td class="serial"><button class="link" @onclick="() => OnOpen.InvokeAsync(bb)">@b.Serial</button></td>
+                                <td>@(b.Floor + 1)</td>
+                                <td>@(s is null ? "not filled" : Draw.Years(b.AgeYears(Date)))</td>
+                                <td>@(s is null ? "" : $"{s.Value.Proof:0.0}")</td>
+                                <td>@(s is null ? "" : $"{s.Value.Volume:0.0}")</td>
+                                <td><button class="x" aria-label="@($"Remove {b.Serial}")" @onclick="() => OnRemove.InvokeAsync(bb)">×</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                <dl class="facts totals">
+                    <div><dt>Batch proof</dt><dd>@($"{r.BarrelProof:0.0}")</dd></div>
+                    <div><dt>Dumped</dt><dd>@($"{r.Gallons:0.0} gal")<small>of @($"{r.FilledGallons:0}") filled</small></dd></div>
+                    <div><dt>Angel's share</dt><dd>@($"{r.AngelsSharePct:0}%")<small>@($"{r.Soaked:0.0}") gal in the wood</small></dd></div>
+                    <div><dt>Proof gallons</dt><dd>@($"{r.ProofGallons:0.0}")</dd></div>
+                </dl>
+
+                <fieldset class="bottling">
+                    <legend>Bottle it at</legend>
+                    <label><input type="radio" name="bp" checked="@barrelProof" @onchange="() => barrelProof = true" /> Barrel proof</label>
+                    <label><input type="radio" name="bp" checked="@(!barrelProof)" @onchange="() => { barrelProof = false; bottleProof = Math.Min(bottleProof, r.BarrelProof); }" /> Cut with water</label>
+                    @if (!barrelProof)
+                    {
+                        <div class="cut">
+                            <input type="range" min="80" max="@Draw.N(Math.Floor(r.BarrelProof))" step="1" value="@bottleProof"
+                                   aria-label="Bottling proof" @oninput="e => bottleProof = double.Parse((string)e.Value!)" />
+                            <span>@($"{r.BottleProof:0} proof")</span>
+                            <button class="link" @onclick="() => bottleProof = 100">100, for bond</button>
+                        </div>
+                    }
+                </fieldset>
+            </div>
+
+            <Radar Labels="Axes" Caption="Flavor profile, volume-weighted across the batch"
+                   Values="[r.Flavor.Vanilla, r.Flavor.Oak, r.Flavor.Spice, r.Flavor.Fruit, r.Flavor.Heat, r.Flavor.Harsh]" />
+
+            <article class="label-sheet" style="--whiskey:@r.ColorHex">
+                <input class="batch-name" @bind="batchName" aria-label="Batch name" />
+                <p class="cls">@r.Classification</p>
+                <p class="age">
+                    @if (r.YoungestYears >= 4)
+                    {
+                        <text>Aged @((int)Math.Floor(r.YoungestYears)) years</text>
+                    }
+                    else
+                    {
+                        <text>Aged @((int)Math.Floor(r.YoungestYears * 12)) months</text>
+                    }
+                </p>
+                <div class="swatch-row">
+                    <span class="swatch" aria-hidden="true"></span>
+                    <p class="proof-line">
+                        @($"{r.BottleProof:0.0}") proof<br />
+                        <small>@($"{r.BottleProof / 2:0.0}")% alc./vol.@(barrelProof ? ", uncut" : "")</small>
+                    </p>
+                </div>
+                <p class="notes">@r.Notes</p>
+                <dl class="spec">
+                    <div><dt>Barrels</dt><dd>@r.Barrels, from floor@(r.Floors.Count > 1 ? "s" : "") @string.Join(", ", r.Floors.Select(f => f + 1))</dd></div>
+                    <div><dt>Mash</dt><dd>@MashLine</dd></div>
+                    <div><dt>Ages</dt><dd>@(r.Barrels == 1 ? Draw.Years(r.OldestYears) : $"{Draw.Years(r.YoungestYears)} to {Draw.Years(r.OldestYears)}")</dd></div>
+                    <div><dt>Yield</dt><dd>@r.Bottles.ToString("#,0") bottles, 750 mL</dd></div>
+                    <div><dt>Lost to the angels</dt><dd>@($"{r.AngelsSharePct:0}%")</dd></div>
+                    <div><dt>Bench score</dt><dd>@($"{r.Score:0}") / 100</dd></div>
+                    <div><dt>Bottled in bond</dt><dd>@(r.BondEligible ? "Eligible" : $"No, {r.BondBlocker}")</dd></div>
+                </dl>
+                <p class="dumped">Dumped @Date.ToString("MMMM d, yyyy")</p>
+            </article>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Rickhouse House { get; set; } = default!;
+    [Parameter] public DateOnly Date { get; set; }
+    [Parameter] public List<Barrel> Picks { get; set; } = [];
+    [Parameter] public EventCallback<Barrel> OnRemove { get; set; }
+    [Parameter] public EventCallback<Barrel> OnOpen { get; set; }
+    [Parameter] public EventCallback OnAddReady { get; set; }
+    [Parameter] public EventCallback OnClear { get; set; }
+
+    static readonly string[] Axes = ["Vanilla", "Oak", "Spice", "Fruit", "Heat", "New-make"];
+
+    bool barrelProof = true;
+    double bottleProof = 100;
+    string batchName = "Rickhouse C, Batch 1";
+
+    string MashLine
+    {
+        get
+        {
+            var live = Picks.Where(b => b.At(House.Climate, Date) is not null).ToList();
+            var groups = live.GroupBy(b => b.Recipe.Name).OrderByDescending(g => g.Count()).ToList();
+            if (groups.Count == 1) return $"{groups[0].Key} ({groups[0].First().Recipe.BillText})";
+            return string.Join(", ", groups.Select(g => $"{g.Count()} {g.Key.ToLowerInvariant()}"));
+        }
+    }
+}

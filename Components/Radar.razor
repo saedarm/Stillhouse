@@ -1,0 +1,35 @@
+<figure class="radar">
+    <svg viewBox="0 0 280 270" role="img" aria-label="@Aria">
+        @foreach (var ring in new[] { 2.5, 5, 7.5, 10 })
+        {
+            <polygon points="@Draw.Poly(Labels.Select((_, i) => P(i, ring)))" class="radar-ring" />
+        }
+        @for (int i = 0; i < Labels.Length; i++)
+        {
+            var (x, y) = P(i, 10);
+            var (lx, ly) = P(i, 12.2);
+            <g><line x1="140" y1="135" x2="@Draw.N(x)" y2="@Draw.N(y)" class="radar-spoke" />
+            <text x="@Draw.N(lx)" y="@Draw.N(ly + 4)" text-anchor="middle" class="radar-label">@Labels[i]</text>
+            <text x="@Draw.N(lx)" y="@Draw.N(ly + 17)" text-anchor="middle" class="radar-value">@($"{Values[i]:0.0}")</text></g>
+        }
+        <polygon points="@Draw.Poly(Values.Select((v, i) => P(i, v)))" class="radar-shape" />
+    </svg>
+    @if (Caption is not null)
+    {
+        <figcaption>@Caption</figcaption>
+    }
+</figure>
+
+@code {
+    [Parameter] public string[] Labels { get; set; } = [];
+    [Parameter] public double[] Values { get; set; } = [];
+    [Parameter] public string? Caption { get; set; }
+
+    string Aria => string.Join(", ", Labels.Zip(Values, (a, v) => $"{a} {v:0.0}"));
+
+    (double, double) P(int i, double v)
+    {
+        double a = -Math.PI / 2 + i * Math.PI * 2 / Labels.Length, r = Math.Clamp(v, 0, 10) / 10 * 92;
+        return (140 + r * Math.Cos(a), 135 + r * Math.Sin(a));
+    }
+}

@@ -1,0 +1,55 @@
+@* The whole year at once: one row per floor, one cell per week. *@
+
+<figure class="yearheat">
+    <figcaption>@Date.Year, week by week. Click a week to jump there.</figcaption>
+    <svg viewBox="0 0 620 168" role="img" aria-label="@($"Floor temperatures through {Date.Year}")">
+        @for (int f = 6; f >= 0; f--)
+        {
+            double y = 4 + (6 - f) * Row;
+            <g><text x="58" y="@Draw.N(y + Row - 5)" class="hm-row @(f == SelectedFloor ? "is-on" : "")">@(f + 1)</text></g>
+            @for (int w = 0; w < 53; w++)
+            {
+                var d = Jan1.AddDays(w * 7);
+                if (d.Year != Date.Year) break;
+                double t = WeekMean(f, d);
+                var day = d;
+                <rect x="@Draw.N(70 + w * Cell)" y="@Draw.N(y)" width="@Draw.N(Cell - 1)" height="@(Row - 1)"
+                      fill="@Draw.Heat(t)" class="hm-cell" @onclick="() => OnPick.InvokeAsync(day)">
+                    <title>Floor @(f + 1), week of @day.ToString("MMM d"): @($"{t:0}°F")</title>
+                </rect>
+            }
+        }
+        @{ double cx = 70 + (Date.DayOfYear - 1) / 7.0 * Cell; }
+        <line x1="@Draw.N(cx)" x2="@Draw.N(cx)" y1="0" y2="@(4 + 7 * Row)" class="hm-cursor" />
+        @for (int m = 1; m <= 12; m++)
+        {
+            var md = new DateOnly(Date.Year, m, 1);
+            <g><text x="@Draw.N(70 + (md.DayOfYear - 1) / 7.0 * Cell)" y="160" class="hm-month">@md.ToString("MMM")</text></g>
+        }
+        <text x="58" y="160" class="hm-row">Floor</text>
+    </svg>
+    <div class="ramp" aria-hidden="true">
+        @foreach (var t in new[] { 30, 45, 60, 75, 90, 105 })
+        {
+            <span style="background:@Draw.Heat(t)">@(t)°</span>
+        }
+    </div>
+</figure>
+
+@code {
+    [Parameter, EditorRequired] public Climate Climate { get; set; } = default!;
+    [Parameter] public DateOnly Date { get; set; }
+    [Parameter] public int SelectedFloor { get; set; }
+    [Parameter] public EventCallback<DateOnly> OnPick { get; set; }
+
+    const double Row = 20, Cell = 10;
+    DateOnly Jan1 => new(Date.Year, 1, 1);
+
+    double WeekMean(int f, DateOnly start)
+    {
+        int d0 = Climate.DayIndex(start);
+        double s = 0;
+        for (int i = 0; i < 7; i++) s += Climate.FloorTemp[f, Math.Min(d0 + i, Climate.Days - 1)];
+        return s / 7;
+    }
+}

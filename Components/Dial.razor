@@ -1,0 +1,25 @@
+@* A labeled slider. If Limit is set, values past it are flagged as over the legal line. *@
+<div class="dial @(Limit is int l && Value > l ? "is-over" : "")">
+    <label for="@Id">@Label</label>
+    <output>@Value@Unit</output>
+    <input id="@Id" type="range" min="@Min" max="@Max" step="@Step" value="@Value"
+           @oninput="e => OnChange.InvokeAsync(int.Parse((string)e.Value!))" />
+    @if (Limit is int lim)
+    {
+        <i class="limit" style="left:@Draw.N((lim - Min) * 100.0 / (Max - Min))%" aria-hidden="true"></i>
+    }
+    <small>@Note</small>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public int Min { get; set; }
+    [Parameter] public int Max { get; set; } = 100;
+    [Parameter] public int Step { get; set; } = 1;
+    [Parameter] public int Value { get; set; }
+    [Parameter] public string Unit { get; set; } = "";
+    [Parameter] public string? Note { get; set; }
+    [Parameter] public int? Limit { get; set; }
+    [Parameter] public EventCallback<int> OnChange { get; set; }
+}

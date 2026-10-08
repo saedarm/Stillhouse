@@ -1,0 +1,192 @@
+@{
+    var c = House.Climate;
+    var now = Barrel.At(c, Date);
+    int nowIdx = Math.Clamp((c.DayIndex(Date) - Barrel.FillDay(c)) / 7, 0, Barrel.Path.Length - 1);
+    var (pk, pv) = Barrel.Peaks();
+    double age = Barrel.AgeYears(Date), peakAge = Yr(pk), valueAge = Yr(pv);
+    var peakSnap = Barrel.Path[pk];
+}
+
+<section class="panel barrel-panel">
+    <header class="barrel-head">
+        <div>
+            <h2 class="stencil" tabindex="-1" @ref="heading">@Barrel.Serial</h2>
+            <p>Floor @(Barrel.Floor + 1), slot @(Barrel.Slot + 1). Filled @Barrel.FillDate.ToString("MMM d, yyyy") at @Barrel.EntryProof proof, #@Barrel.CharLevel char.<br />
+               Mash: @Barrel.Recipe.Name, @Barrel.Recipe.BillText.</p>
+        </div>
+        <button class="link" @onclick="OnClose">Back to floor</button>
+    </header>
+
+    @if (now is null)
+    {
+        <p class="empty-note">Not filled yet on @Date.ToString("MMM d, yyyy").</p>
+    }
+    else
+    {
+        var s = now.Value;
+        <dl class="facts">
+            <div><dt>Age</dt><dd>@Draw.Years(age)</dd></div>
+            <div><dt>Proof</dt><dd>@($"{s.Proof:0.0}")<small>@Delta(s.Proof - Barrel.EntryProof)</small></dd></div>
+            <div><dt>In the barrel</dt><dd>@($"{s.Volume:0.0} gal")<small>@($"{100 * (1 - s.Volume / Barrel.FillGallons):0}% gone")</small></dd></div>
+            <div><dt>In the staves</dt><dd>@($"{s.Soaked:0.0} gal")</dd></div>
+        </dl>
+
+        <p class="verdict">@Verdict(age, peakAge, valueAge, peakSnap)</p>
+
+        <div class="chart-head">
+            <h3>When to dump it</h3>
+            <label class="toggle"><input type="checkbox" @bind="showOthers" /> Same fill on other floors</label>
+        </div>
+        <svg viewBox="0 0 420 236" class="chart" role="img" aria-label="Flavor score and volume over 20 years">
+            @for (int y = 0; y <= 20; y += 4)
+            {
+                <g><line x1="@X(y)" x2="@X(y)" y1="16" y2="196" class="grid" />
+                <text x="@X(y)" y="212" class="tick" text-anchor="middle">@y</text></g>
+            }
+            @for (int v = 0; v <= 100; v += 25)
+            {
+                <g><text x="34" y="@Draw.N(Ys(v) + 4)" class="tick" text-anchor="end">@v</text></g>
+            }
+            <text x="220" y="230" class="tick" text-anchor="middle">years in the barrel</text>
+
+            <polyline points="@Draw.Poly(Barrel.Path.Select((p, i) => (Xd(Yr(i)), Yg(p.Volume))))" class="line-vol" />
+
+            @if (showOthers)
+            {
+                for (int f = 0; f < 7; f++)
+                {
+                    if (f == Barrel.Floor) continue;
+                    var p = Others[f];
+                    <g><polyline points="@Draw.Poly(p.Select((q, i) => (Xd(Yr(i)), Ys(q.Score))))" class="line-other" />
+                    <text x="@Draw.N(Xd(Yr(p.Length - 1)) + 4)" y="@Draw.N(Ys(p[^1].Score) + 3)" class="tick">@(f + 1)</text></g>
+                }
+            }
+
+            <polyline points="@Draw.Poly(Barrel.Path.Select((p, i) => (Xd(Yr(i)), Ys(p.Score))))" class="line-main" />
+            <text x="@Draw.N(Xd(Yr(Barrel.Path.Length - 1)) + 4)" y="@Draw.N(Ys(Barrel.Path[^1].Score) + 3)" class="tick tick-main">@(Barrel.Floor + 1)</text>
+
+            <line x1="@Draw.N(Xd(age))" x2="@Draw.N(Xd(age))" y1="16" y2="196" class="today" />
+            <text x="@Draw.N(Xd(age) + 4)" y="26" class="tick tick-today">today</text>
+
+            <rect x="@Draw.N(Xd(valueAge) - 4)" y="@Draw.N(Ys(Barrel.Path[pv].Score) - 4)" width="8" height="8"
+                  transform="rotate(45 @Draw.N(Xd(valueAge)) @Draw.N(Ys(Barrel.Path[pv].Score)))" class="mark-value" />
+            <circle cx="@Draw.N(Xd(peakAge))" cy="@Draw.N(Ys(peakSnap.Score))" r="5" class="mark-peak" />
+        </svg>
+        <p class="legend">
+            <span><i class="dot peak"></i>Flavor peak, @Draw.Years(peakAge)</span>
+            <span><i class="dia"></i>Most good whiskey (score × gallons), @Draw.Years(valueAge)</span>
+            <span><i class="dash"></i>Gallons left</span>
+            <span><i class="thin"></i>Other floors, numbered</span>
+        </p>
+
+        <h3>Proof over time</h3>
+        <svg viewBox="0 0 420 130" class="chart" role="img" aria-label="Proof over time">
+            @for (int pr = 100; pr <= 150; pr += 10)
+            {
+                <g><line x1="40" x2="400" y1="@Draw.N(Yp(pr))" y2="@Draw.N(Yp(pr))" class="grid" />
+                <text x="34" y="@Draw.N(Yp(pr) + 4)" class="tick" text-anchor="end">@pr</text></g>
+            }
+            @if (showOthers)
+            {
+                for (int f = 0; f < 7; f++)
+                {
+                    if (f == Barrel.Floor) continue;
+                    var p = Others[f];
+                    <g><polyline points="@Draw.Poly(p.Select((q, i) => (Xd(Yr(i)), Yp(q.Proof))))" class="line-other" />
+                    <text x="@Draw.N(Xd(Yr(p.Length - 1)) + 4)" y="@Draw.N(Yp(p[^1].Proof) + 3)" class="tick">@(f + 1)</text></g>
+                }
+            }
+            <polyline points="@Draw.Poly(Barrel.Path.Select((p, i) => (Xd(Yr(i)), Yp(p.Proof))))" class="line-main" />
+            <line x1="@Draw.N(Xd(age))" x2="@Draw.N(Xd(age))" y1="6" y2="118" class="today" />
+        </svg>
+
+        <h3>Inside the stave right now</h3>
+        <svg viewBox="0 -8 420 94" class="chart stave" role="img"
+             aria-label="@($"Spirit is {s.Depth:0.0} millimeters into the stave")">
+            <rect x="8" y="14" width="96" height="44" fill="@Liquid(s)" />
+            <text x="56" y="40" text-anchor="middle" class="stave-label dark">spirit</text>
+            <rect x="104" y="14" width="@Draw.N(CharMm * Mm)" height="44" fill="#1d1712" />
+            <rect x="@Draw.N(104 + CharMm * Mm)" y="14" width="@Draw.N((RedMm - CharMm) * Mm)" height="44" fill="#7a3a22" />
+            <rect x="@Draw.N(104 + RedMm * Mm)" y="14" width="@Draw.N(412 - 104 - RedMm * Mm)" height="44" fill="#b98a57" />
+            @for (int g = 0; g < 7; g++)
+            {
+                <line x1="@Draw.N(104 + RedMm * Mm + 8 + g * 22)" x2="@Draw.N(104 + RedMm * Mm + 14 + g * 22)" y1="14" y2="58" stroke="#a0754a" />
+            }
+            <defs>
+                <pattern id="wet" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                    <rect width="6" height="6" fill="var(--amber)" opacity="0.35" />
+                    <line x1="0" y1="0" x2="0" y2="6" stroke="var(--amber)" stroke-width="2.5" />
+                </pattern>
+            </defs>
+            <rect x="104" y="14" width="@Draw.N(s.Depth * Mm)" height="44" fill="url(#wet)" class="soak" />
+            <line x1="@Draw.N(104 + s.Depth * Mm)" x2="@Draw.N(104 + s.Depth * Mm)" y1="6" y2="64" class="depth-line" />
+            <text x="@Draw.N(104 + s.Depth * Mm)" y="4" text-anchor="middle" class="tick tick-today">@($"{s.Depth:0.0} mm")</text>
+            <text x="@Draw.N(104 + CharMm * Mm / 2)" y="78" text-anchor="middle" class="tick">char</text>
+            <text x="@Draw.N(104 + (CharMm + RedMm) / 2 * Mm)" y="78" text-anchor="middle" class="tick">red layer</text>
+            <text x="@Draw.N(104 + RedMm * Mm + 70)" y="78" text-anchor="middle" class="tick">raw oak</text>
+        </svg>
+        <p class="explain">
+            At @($"{s.WeekTemp:0}°F") this week the spirit is pushed @($"{s.Depth:0.0}") mm into the wood.
+            Heat expands the spirit and the air in the barrel, pushing whiskey through the char into the red layer,
+            where toasted lignin turns into vanillin. Cold pulls it back out. This barrel has breathed through
+            @($"{s.Cycles:#,0}") degrees of swing so far.
+        </p>
+
+        <button class="primary" @onclick="() => OnToggleBlend.InvokeAsync(Barrel)">
+            @(InBlend ? "Remove from blend" : "Add to blend")
+        </button>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Rickhouse House { get; set; } = default!;
+    [Parameter, EditorRequired] public Barrel Barrel { get; set; } = default!;
+    [Parameter] public DateOnly Date { get; set; }
+    [Parameter] public bool InBlend { get; set; }
+    [Parameter] public EventCallback<Barrel> OnToggleBlend { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    bool showOthers = true, refocus;
+    ElementReference heading;
+    Barrel? cachedFor;
+    Snap[][] Others = [];
+
+    const double CharMm = 1.5, RedMm = 5.0, Mm = 30;
+
+    protected override void OnParametersSet()
+    {
+        if (cachedFor != Barrel) { Others = House.EveryFloor(Barrel); cachedFor = Barrel; refocus = true; }
+    }
+
+    // Brings the inspector into view on phones, where it sits below the warehouse.
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!refocus) return;
+        refocus = false;
+        try { await heading.FocusAsync(preventScroll: false); } catch (InvalidOperationException) { }
+    }
+
+    static double Yr(int week) => week * 7 / 365.25;
+    static double Xd(double years) => 40 + years / 20 * 360;
+    static string X(int years) => Draw.N(Xd(years));
+    static double Ys(double score) => 196 - score / 100 * 180;
+    static double Yg(double gal) => 196 - gal / Barrel.FillGallons * 180;
+    static double Yp(double proof) => 118 - (Math.Clamp(proof, 100, 155) - 100) / 50 * 108;
+
+    static string Delta(double d) => Math.Abs(d) < 0.1 ? "unchanged" : d > 0 ? $"up {d:0.0}" : $"down {-d:0.0}";
+
+    static string Liquid(Snap s)
+    {
+        double x = Math.Clamp((s.Flavor.Oak + s.Flavor.Vanilla) / 18, 0, 1);
+        return $"#{(int)(232 - 110 * x):x2}{(int)(196 - 150 * x):x2}{(int)(120 - 100 * x):x2}";
+    }
+
+    static string Verdict(double age, double peak, double value, Snap peakSnap)
+    {
+        double gap = peak - age;
+        if (age < 2) return $"Too young to call it straight bourbon. Projected flavor peak in {gap:0.0} years, scoring {peakSnap.Score:0}.";
+        if (gap > 1) return $"Still improving. Projected flavor peak in {gap:0.0} years (score {peakSnap.Score:0}), with {peakSnap.Volume:0.0} gallons left by then.";
+        if (gap >= -1) return $"In its window now. Flavor peaks around {Draw.Years(peak)} at a score of {peakSnap.Score:0}. Dump it this year.";
+        return $"Past its peak by {-gap:0.0} years. The oak is taking over and the angels are taking the rest. Dump it soon.";
+    }
+}

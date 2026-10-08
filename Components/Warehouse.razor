@@ -1,0 +1,116 @@
+@* Cross-section of the rickhouse. Each floor band is colored by today's mean temperature;
+   each circle is a barrel head, brighter the closer it is to its flavor peak. *@
+
+<figure class="warehouse">
+    <svg viewBox="0 0 620 724" role="img" aria-label="Rickhouse cross-section, seven floors">
+        <defs>
+            <pattern id="siding" width="8" height="8" patternUnits="userSpaceOnUse">
+                <rect width="8" height="8" fill="var(--tin)" />
+                <line x1="0" y1="0" x2="0" y2="8" stroke="var(--rail)" stroke-width="1" />
+            </pattern>
+            <pattern id="earth" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+                <rect width="10" height="10" fill="#3a2e22" />
+                <line x1="0" y1="0" x2="0" y2="10" stroke="#4d3d2c" stroke-width="3" />
+            </pattern>
+        </defs>
+
+        @* Roof with the clerestory monitor that vents the hottest air *@
+        <polygon points="56,160 335,82 614,160" fill="url(#siding)" stroke="var(--rail)" />
+        <rect x="282" y="56" width="106" height="44" fill="url(#siding)" stroke="var(--rail)" />
+        <polygon points="272,62 335,34 398,62" fill="var(--tin)" stroke="var(--rail)" />
+        @for (int i = 0; i < 6; i++)
+        {
+            <rect x="@(292 + i * 16)" y="68" width="10" height="22" fill="@Draw.Heat(Temp(6) + 6)" opacity="0.55" />
+        }
+
+        @for (int f = 6; f >= 0; f--)
+        {
+            int fl = f;
+            double y0 = Top(fl);
+            double t = Temp(fl);
+            bool sel = fl == SelectedFloor;
+            <g class="floor @(sel ? "is-selected" : "")" @onclick="() => OnFloor.InvokeAsync(fl)">
+                <rect x="70" y="@y0" width="530" height="@Band" fill="@Draw.Heat(t)" />
+                <rect x="70" y="@(y0 + Band - 5)" width="530" height="5" fill="var(--soot)" opacity="0.7" />
+                <text x="34" y="@(y0 + 38)" class="floor-num">@(fl + 1)</text>
+                <text x="34" y="@(y0 + 58)" class="floor-temp">@($"{t:0}°")</text>
+                @if (sel)
+                {
+                    <rect x="66" y="@(y0 + 1)" width="538" height="@(Band - 2)" class="floor-ring" />
+                }
+            </g>
+
+            @for (int s = 0; s < Rickhouse.SlotsPerFloor; s++)
+            {
+                var b = House.At(fl, s);
+                double cx = 94 + s * 44.2, cy = y0 + 36;
+                var snap = b?.At(House.Climate, Date);
+                if (b is null || snap is null)
+                {
+                    <circle cx="@Draw.N(cx)" cy="@Draw.N(cy)" r="17" class="empty-rick" />
+                    continue;
+                }
+                var barrel = b;
+                bool isSel = barrel == Selected, inBlend = Blend.Contains(barrel);
+                <g class="barrel" tabindex="0" role="button"
+                   aria-label="@($"Barrel {barrel.Serial}, floor {fl + 1}, {Draw.Years(barrel.AgeYears(Date))}, {snap.Value.Proof:0} proof")"
+                   @onclick="() => OnBarrel.InvokeAsync(barrel)" @onclick:stopPropagation="true"
+                   @onkeydown="e => Key(e, barrel)">
+                    <title>@barrel.Serial: @Draw.Years(barrel.AgeYears(Date)), @($"{snap.Value.Proof:0.0}") proof, @($"{snap.Value.Volume:0.0}") gal</title>
+                    <circle cx="@Draw.N(cx)" cy="@Draw.N(cy)" r="18" fill="@HeadColor(barrel, snap.Value)"
+                            stroke="@(isSel ? "var(--paper)" : "#24170d")" stroke-width="@(isSel ? 3.5 : 2)" />
+                    <circle cx="@Draw.N(cx)" cy="@Draw.N(cy)" r="12.5" fill="none" stroke="#24170d" stroke-opacity="0.45" stroke-width="1.2" />
+                    <line x1="@Draw.N(cx - 7)" y1="@Draw.N(cy)" x2="@Draw.N(cx + 7)" y2="@Draw.N(cy)" stroke="#24170d" stroke-opacity="0.35" />
+                    @if (inBlend)
+                    {
+                        <circle cx="@Draw.N(cx + 13)" cy="@Draw.N(cy - 13)" r="6" class="blend-pin" />
+                    }
+                </g>
+            }
+        }
+
+        <rect x="56" y="692" width="558" height="24" fill="url(#earth)" />
+        <rect x="56" y="160" width="14" height="532" fill="url(#siding)" />
+        <rect x="600" y="160" width="14" height="532" fill="url(#siding)" />
+    </svg>
+    <figcaption>
+        <span class="key"><i class="sw sw-ready"></i>bright head: near its flavor peak</span>
+        <span class="key"><i class="sw sw-green"></i>dark head: still green or past it</span>
+        <span class="key"><i class="sw sw-pin"></i>in the blend</span>
+    </figcaption>
+</figure>
+
+@code {
+    [Parameter, EditorRequired] public Rickhouse House { get; set; } = default!;
+    [Parameter] public DateOnly Date { get; set; }
+    [Parameter] public int SelectedFloor { get; set; }
+    [Parameter] public Barrel? Selected { get; set; }
+    [Parameter] public List<Barrel> Blend { get; set; } = [];
+    [Parameter] public EventCallback<int> OnFloor { get; set; }
+    [Parameter] public EventCallback<Barrel> OnBarrel { get; set; }
+
+    const double Band = 76;
+
+    Task Key(KeyboardEventArgs e, Barrel b) =>
+        e.Key is "Enter" or " " ? OnBarrel.InvokeAsync(b) : Task.CompletedTask;
+    static double Top(int floor) => 160 + (6 - floor) * Band;
+
+    /// <summary>Weekly mean so the colors don't flicker with single cold fronts.</summary>
+    double Temp(int floor)
+    {
+        var c = House.Climate;
+        int d = c.DayIndex(Date);
+        double s = 0; int n = 0;
+        for (int i = Math.Max(0, d - 6); i <= d; i++) { s += c.FloorTemp[floor, i]; n++; }
+        return s / n;
+    }
+
+    static string HeadColor(Barrel b, Snap s)
+    {
+        var (peak, _) = b.Peaks();
+        double k = Math.Clamp((s.Score - 20) / Math.Max(1, b.Path[peak].Score - 20), 0, 1);
+        k *= k;
+        (int r, int g, int bl) dull = (86, 58, 34), hot = (228, 164, 70);
+        return $"#{(int)(dull.r + (hot.r - dull.r) * k):x2}{(int)(dull.g + (hot.g - dull.g) * k):x2}{(int)(dull.bl + (hot.bl - dull.bl) * k):x2}";
+    }
+}

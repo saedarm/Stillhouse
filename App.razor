@@ -1,0 +1,138 @@
+@implements IDisposable
+
+<div class="page">
+    <header class="masthead">
+        <h1>Stillhouse</h1>
+        <p>A seven-floor Kentucky rickhouse that ages every barrel on heat, humidity and time. Design a mash in the lab, scrub the calendar, open a barrel, then build a batch on the blend bench.</p>
+    </header>
+
+    <nav class="tabs" role="tablist" aria-label="Views">
+        <button role="tab" aria-selected="@(view == View.House)" class="@(view == View.House ? "is-on" : "")"
+                @onclick="() => view = View.House">Rickhouse</button>
+        <button role="tab" aria-selected="@(view == View.Lab)" class="@(view == View.Lab ? "is-on" : "")"
+                @onclick="() => view = View.Lab">Mash lab</button>
+    </nav>
+
+    @if (view == View.Lab)
+    {
+        <MashLab House="house" Date="Date" OnFilled="Filled" />
+    }
+    else
+    {
+    <section class="house-and-inspector">
+        <div class="house-col">
+            <Warehouse House="house" Date="Date" SelectedFloor="floor" Selected="barrel" Blend="blend"
+                       OnFloor="SelectFloor" OnBarrel="SelectBarrel" />
+
+            <div class="calendar">
+                <button class="play" @onclick="TogglePlay" aria-label="@(playing ? "Pause" : "Play")">
+                    @(playing ? "Pause" : "Play")
+                </button>
+                <div class="scrub">
+                    <input type="range" min="0" max="@MaxDay" step="7" value="@day" aria-label="Warehouse date"
+                           @oninput="e => { day = int.Parse((string)e.Value!); }" />
+                    <div class="scrub-label">
+                        <strong>@Date.ToString("MMMM d, yyyy")</strong>
+                        <span>@SeasonName(Date)</span>
+                        @if (Date != Today)
+                        {
+                            <button class="link" @onclick="() => day = DayOf(Today)">Back to today</button>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <YearHeat Climate="house.Climate" Date="Date" OnPick="d => day = DayOf(d)" SelectedFloor="floor" />
+        </div>
+
+        <aside class="inspector">
+            @if (barrel is not null)
+            {
+                <BarrelPanel House="house" Barrel="barrel" Date="Date" InBlend="blend.Contains(barrel)"
+                             OnToggleBlend="ToggleBlend" OnClose="() => barrel = null" />
+            }
+            else
+            {
+                <FloorPanel House="house" Floor="floor" Date="Date" OnBarrel="SelectBarrel" />
+            }
+        </aside>
+    </section>
+
+    <BlendBench House="house" Date="Date" Picks="blend" OnRemove="b => blend.Remove(b)"
+                OnAddReady="AddReady" OnClear="() => blend.Clear()" OnOpen="SelectBarrel" />
+    }
+
+    <footer class="colophon">
+        Physics: synthetic central-Kentucky weather, floor stratification, humidity-split evaporation,
+        stave soak, thermal breathing through the char and red layers, and finite wood pools.
+        Calibrated to industry rules of thumb, not to any one distillery.
+    </footer>
+</div>
+
+@code {
+    static readonly DateOnly Start = new(2012, 1, 1);
+    static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.Today);
+    static readonly int MaxDay = new DateOnly(2040, 12, 31).DayNumber - Start.DayNumber;
+
+    readonly Rickhouse house = new();
+    readonly List<Barrel> blend = [];
+    int day = DayOf(Today);
+    enum View { House, Lab }
+    View view = View.House;
+    int floor = 6;
+    Barrel? barrel;
+    bool playing;
+    System.Threading.Timer? timer;
+
+    DateOnly Date => Start.AddDays(day);
+    static int DayOf(DateOnly d) => Math.Clamp(d.DayNumber - Start.DayNumber, 0, MaxDay);
+
+    static string SeasonName(DateOnly d) => d.Month switch
+    {
+        12 or 1 or 2 => "Winter: spirit pulls out of the wood",
+        3 or 4 or 5 => "Spring: the house starts to breathe",
+        6 or 7 or 8 => "Summer: spirit pushed deep into the char",
+        _ => "Fall: big day-night swings",
+    };
+
+    void Filled(Barrel b)
+    {
+        view = View.House;
+        SelectBarrel(b);
+    }
+
+    void SelectFloor(int f) { floor = f; barrel = null; }
+    void SelectBarrel(Barrel b) { barrel = b; floor = b.Floor; }
+
+    void ToggleBlend(Barrel b)
+    {
+        if (!blend.Remove(b)) blend.Add(b);
+    }
+
+    void AddReady()
+    {
+        foreach (var b in house.Barrels)
+        {
+            if (blend.Contains(b) || b.At(house.Climate, Date) is null) continue;
+            var (peak, _) = b.Peaks();
+            double peakAge = peak * 7 / 365.25, age = b.AgeYears(Date);
+            if (age >= 2 && age >= peakAge - 0.75 && age <= peakAge + 1.5) blend.Add(b);
+        }
+    }
+
+    void TogglePlay()
+    {
+        playing = !playing;
+        timer?.Dispose();
+        timer = null;
+        if (playing)
+            timer = new System.Threading.Timer(_ => InvokeAsync(() =>
+            {
+                if (day + 7 > MaxDay) { playing = false; timer?.Dispose(); }
+                else day += 7;
+                StateHasChanged();
+            }), null, 0, 120);
+    }
+
+    public void Dispose() => timer?.Dispose();
+}

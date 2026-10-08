@@ -1,0 +1,323 @@
+@implements IDisposable
+@{
+    var nm = Mash.Analyze(recipe);
+}
+
+<section class="lab">
+    <div class="lab-controls">
+        <div class="presets" role="group" aria-label="Start from a recipe">
+            @foreach (var p in Recipe.Presets)
+            {
+                var preset = p;
+                <button class="@(recipe.Name == preset.Name && nameMode == NameMode.Preset ? "is-on" : "")"
+                        @onclick="() => Load(preset)">@preset.Name</button>
+            }
+            <button class="surprise" @onclick="Surprise">Surprise me</button>
+        </div>
+
+        <h3>Grain bill</h3>
+        <div class="bill-bar" aria-hidden="true">
+            @foreach (var g in Grains.All.Where(g => recipe.Pct(g.Key) > 0))
+            {
+                <span style="width:@(recipe.Pct(g.Key))%;background:@g.Color" title="@g.Name @recipe.Pct(g.Key)%"></span>
+            }
+        </div>
+        <p class="hint">Move any grain and the others rescale to keep the bill at 100%.</p>
+        <div class="grains">
+            @foreach (var g in Grains.All)
+            {
+                var grain = g;
+                <div class="grain">
+                    <i class="chip" style="background:@g.Color"></i>
+                    <label for="g-@g.Key">
+                        <strong>@g.Name</strong>
+                        <small>@g.Note</small>
+                    </label>
+                    <input id="g-@g.Key" type="range" min="0" max="100" value="@recipe.Pct(g.Key)"
+                           @oninput="e => SetGrain(grain.Key, int.Parse((string)e.Value!))" />
+                    <output>@(recipe.Pct(g.Key))%</output>
+                </div>
+            }
+        </div>
+
+        <h3>Yeast and fermentation</h3>
+        <div class="yeasts" role="radiogroup" aria-label="Yeast strain">
+            @foreach (var y in Yeasts.All)
+            {
+                var yeast = y;
+                <label class="yeast @(recipe.YeastKey == y.Key ? "is-on" : "")">
+                    <input type="radio" name="yeast" checked="@(recipe.YeastKey == y.Key)"
+                           @onchange="() => Change(r => r.YeastKey = yeast.Key)" />
+                    <strong>@y.Name</strong>
+                    <small>@y.Note</small>
+                </label>
+            }
+        </div>
+        <div class="dials">
+            <Dial Id="ferm-days" Label="Fermentation" Min="3" Max="8" Value="recipe.FermentDays" Unit=" days"
+                  Note="Longer ferments make more fruity esters." OnChange="v => Change(r => r.FermentDays = v)" />
+            <Dial Id="ferm-temp" Label="Ferment temperature" Min="70" Max="95" Value="recipe.FermentTempF" Unit="°F"
+                  Note="Hotter means more fruit, and more bite." OnChange="v => Change(r => r.FermentTempF = v)" />
+            <Dial Id="sour" Label="Sour mash (backset)" Min="0" Max="40" Step="5" Value="recipe.SourMashPct" Unit="%"
+                  Note="Spent mash from the last run. Keeps it clean and consistent." OnChange="v => Change(r => r.SourMashPct = v)" />
+        </div>
+
+        <h3>Still and barrel</h3>
+        <div class="still-pick" role="radiogroup" aria-label="Still">
+            <label class="@(!recipe.PotStill ? "is-on" : "")">
+                <input type="radio" name="still" checked="@(!recipe.PotStill)" @onchange="() => Change(r => r.PotStill = false)" />
+                <strong>Column and doubler</strong><small>Kentucky standard. Efficient, cleaner spirit.</small>
+            </label>
+            <label class="@(recipe.PotStill ? "is-on" : "")">
+                <input type="radio" name="still" checked="@recipe.PotStill" @onchange="() => Change(r => r.PotStill = true)" />
+                <strong>Double pot still</strong><small>Heavier, oilier, more grain character. Lower yield.</small>
+            </label>
+        </div>
+        <div class="dials">
+            <Dial Id="still-proof" Label="Off the still" Min="100" Max="170" Value="recipe.StillProof" Unit=" proof"
+                  Note="Lower keeps more grain flavor. Bourbon tops out at 160." Limit="160" OnChange="v => Change(r => r.StillProof = v)" />
+            <Dial Id="entry-proof" Label="Into the barrel" Min="100" Max="135" Value="recipe.EntryProof" Unit=" proof"
+                  Note="Bourbon tops out at 125. Lower entry pulls more sugar from the wood." Limit="125" OnChange="v => Change(r => r.EntryProof = v)" />
+        </div>
+        <div class="char-pick" role="radiogroup" aria-label="Char level">
+            <span>Barrel char</span>
+            @for (int c = 1; c <= 4; c++)
+            {
+                int lvl = c;
+                <button class="@(recipe.CharLevel == lvl ? "is-on" : "")" aria-pressed="@(recipe.CharLevel == lvl)"
+                        @onclick="() => Change(r => r.CharLevel = lvl)">#@lvl</button>
+            }
+            <small>@CharNote(recipe.CharLevel)</small>
+        </div>
+    </div>
+
+    <div class="lab-result">
+        <article class="ticket">
+            <div class="ticket-name">
+                <input aria-label="Recipe name" value="@recipe.Name" @onchange="e => { recipe.Name = (string)e.Value!; nameMode = NameMode.User; }" />
+                <button class="link" @onclick="Rename">New name</button>
+            </div>
+            <p class="ticket-class @(nm.IsLegalBourbon ? "" : "is-off")">@nm.Classification</p>
+            <p class="ticket-style">@nm.Style mash: @recipe.BillText</p>
+
+            <ul class="checks">
+                @foreach (var (rule, ok) in nm.Checks)
+                {
+                    <li class="@(ok ? "ok" : "no")"><span aria-hidden="true">@(ok ? "✓" : "✗")</span> @rule</li>
+                }
+            </ul>
+            @foreach (var w in nm.Warnings)
+            {
+                <p class="warn">@w</p>
+            }
+
+            <Radar Labels="NewMakeAxes" Values="[nm.Sweet, nm.Spice, nm.Bread, nm.Nutty, nm.Fruit, nm.Floral, nm.Smoke, nm.Bite]" />
+            <p class="ticket-notes">@nm.Notes</p>
+
+            <dl class="spec">
+                <div><dt>Yield</dt><dd>@($"{nm.ProofGallonsPerBushel:0.00}") proof gallons per bushel</dd></div>
+                <div><dt>1,000 bushels fills</dt><dd>@($"{nm.BarrelsPer1000Bushels:0}") barrels at @recipe.EntryProof proof</dd></div>
+            </dl>
+        </article>
+
+        <div class="panel preview">
+            <h3>How it ages here</h3>
+            @if (preview is null)
+            {
+                <p class="hint">Aging it on every floor…</p>
+            }
+            else
+            {
+                var best = BestFloor();
+                <p class="verdict">
+                    Best on floor @(best.floor + 1): peaks at @Draw.Years(best.years) with a score of @($"{best.score:0}").
+                    @CompareLine(best)
+                </p>
+                <svg viewBox="0 0 420 220" class="chart" role="img" aria-label="Projected score by floor over 20 years">
+                    @for (int y = 0; y <= 20; y += 4)
+                    {
+                        <g><line x1="@Draw.N(X(y))" x2="@Draw.N(X(y))" y1="12" y2="186" class="grid" />
+                        <text x="@Draw.N(X(y))" y="202" class="tick" text-anchor="middle">@y</text></g>
+                    }
+                    @for (int v = 0; v <= 100; v += 25)
+                    {
+                        <g><text x="34" y="@Draw.N(Y(v) + 4)" class="tick" text-anchor="end">@v</text></g>
+                    }
+                    <text x="220" y="216" class="tick" text-anchor="middle">years in the barrel</text>
+                    @for (int f = 0; f < 7; f++)
+                    {
+                        var p = preview[f];
+                        var (pk, _) = Physics.Peaks(p);
+                        <g><polyline points="@Draw.Poly(p.Select((q, i) => (X(i * 7 / 365.25), Y(q.Score))))"
+                                  fill="none" stroke="@FloorColor(f)" stroke-width="@(f == best.floor ? 2.8 : 1.4)" />
+                        <circle cx="@Draw.N(X(pk * 7 / 365.25))" cy="@Draw.N(Y(p[pk].Score))" r="3.5" fill="@FloorColor(f)" />
+                        <text x="@Draw.N(X(p.Length * 7 / 365.25) + 4)" y="@Draw.N(Y(p[^1].Score) + 3)" class="tick">@(f + 1)</text></g>
+                    }
+                </svg>
+                <p class="legend">Each line is one floor, colored by how hot it runs. Dots mark each floor's flavor peak.</p>
+
+                <div class="fill-row">
+                    <label for="fill-floor">Fill a barrel on</label>
+                    <select id="fill-floor" @bind="fillFloor">
+                        @for (int f = 6; f >= 0; f--)
+                        {
+                            int empty = House.EmptyRicks(f);
+                            <option value="@f">Floor @(f + 1) (@(empty == 0 ? "full" : $"{empty} open"))</option>
+                        }
+                    </select>
+                    <button class="primary" disabled="@(House.EmptyRicks(fillFloor) == 0)" @onclick="Fill">Fill it, dated @Date.ToString("MMM d, yyyy")</button>
+                </div>
+                @if (House.EmptyRicks(fillFloor) == 0)
+                {
+                    <p class="warn">Floor @(fillFloor + 1) is full. Pick a floor with an open rick.</p>
+                }
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Rickhouse House { get; set; } = default!;
+    [Parameter] public DateOnly Date { get; set; }
+    [Parameter] public EventCallback<Barrel> OnFilled { get; set; }
+
+    enum NameMode { Preset, Auto, User }
+
+    static readonly string[] NewMakeAxes = ["Sweet", "Spice", "Bread", "Nutty", "Fruit", "Floral", "Smoke", "Bite"];
+    static readonly Random Rng = new();
+
+    Recipe recipe = Recipe.Traditional.Clone();
+    NameMode nameMode = NameMode.Preset;
+    int nameSalt;
+    int fillFloor = 3;
+    Snap[][]? preview;
+    Snap[][]? tradPreview;
+    DateOnly previewDate;
+    CancellationTokenSource? pending;
+
+    protected override void OnParametersSet()
+    {
+        if (preview is null || previewDate != Date) SchedulePreview(0);
+    }
+
+    void Load(Recipe p)
+    {
+        recipe = p.Clone();
+        nameMode = NameMode.Preset;
+        SchedulePreview(0);
+    }
+
+    void Surprise()
+    {
+        recipe = Recipe.Surprise(Rng);
+        nameMode = NameMode.Auto;
+        SchedulePreview(0);
+    }
+
+    void Change(Action<Recipe> edit)
+    {
+        edit(recipe);
+        if (nameMode != NameMode.User) { nameMode = NameMode.Auto; recipe.Name = Nickname(); }
+        SchedulePreview(220);
+    }
+
+    void Rename()
+    {
+        nameSalt++;
+        nameMode = NameMode.Auto;
+        recipe.Name = Nickname();
+    }
+
+    string Nickname()
+    {
+        if (nameSalt == 0) return Mash.Nickname(recipe);
+        var copy = recipe.Clone();
+        copy.FermentDays += nameSalt * 101;            // only perturbs the name hash
+        return Mash.Nickname(copy);
+    }
+
+    /// <summary>Sets one grain and rescales the others so the bill stays at 100%.</summary>
+    void SetGrain(string key, int value)
+    {
+        var bill = Grains.All.ToDictionary(g => g.Key, g => recipe.Pct(g.Key));
+        value = Math.Clamp(value, 0, 100);
+        var others = bill.Keys.Where(k => k != key).ToList();
+        int remaining = 100 - value;
+        double sumOthers = others.Sum(k => bill[k]);
+        if (sumOthers == 0)
+        {
+            foreach (var k in others) bill[k] = 0;
+            bill[key == "corn" ? "barley" : "corn"] = remaining;
+        }
+        else
+        {
+            foreach (var k in others) bill[k] = (int)Math.Floor(bill[k] * remaining / sumOthers);
+            int drift = remaining - others.Sum(k => bill[k]);
+            var biggest = others.OrderByDescending(k => bill[k]).First();
+            bill[biggest] += drift;
+        }
+        bill[key] = value;
+        Change(r => r.Bill = bill.Where(kv => kv.Value > 0).ToDictionary());
+    }
+
+    void SchedulePreview(int delayMs)
+    {
+        pending?.Cancel();
+        var cts = pending = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            if (delayMs > 0) await Task.Delay(delayMs, cts.Token);
+            if (cts.IsCancellationRequested) return;
+            await InvokeAsync(() =>
+            {
+                if (cts.IsCancellationRequested) return;
+                preview = House.Preview(recipe, Date);
+                if (tradPreview is null || previewDate != Date) tradPreview = House.Preview(Recipe.Traditional, Date);
+                previewDate = Date;
+                StateHasChanged();
+            });
+        }, cts.Token).ContinueWith(_ => { }, TaskScheduler.Default);
+    }
+
+    (int floor, double years, double score) BestFloor()
+    {
+        int bf = 0; double bs = -1, by = 0;
+        for (int f = 0; f < 7; f++)
+        {
+            var (pk, _) = Physics.Peaks(preview![f]);
+            if (preview[f][pk].Score > bs) { bs = preview[f][pk].Score; bf = f; by = pk * 7 / 365.25; }
+        }
+        return (bf, by, bs);
+    }
+
+    string CompareLine((int floor, double years, double score) best)
+    {
+        if (tradPreview is null) return "";
+        var t = tradPreview[best.floor];
+        var (pk, _) = Physics.Peaks(t);
+        double d = best.score - t[pk].Score, dy = best.years - pk * 7 / 365.25;
+        string score = Math.Abs(d) < 1 ? "the same score as" : d > 0 ? $"{d:0} points better than" : $"{-d:0} points behind";
+        string when = Math.Abs(dy) < 0.5 ? "at about the same age" : dy > 0 ? $"{dy:0.0} years later" : $"{-dy:0.0} years sooner";
+        return $"That's {score} a traditional mash on the same floor, {when}.";
+    }
+
+    async Task Fill()
+    {
+        var b = House.Fill(recipe, fillFloor, Date);
+        if (b is not null) await OnFilled.InvokeAsync(b);
+    }
+
+    static string FloorColor(int f) => Draw.Heat(50 + f * 8);
+    static double X(double years) => 40 + years / 20 * 360;
+    static double Y(double score) => 186 - score / 100 * 174;
+
+    static string CharNote(int c) => c switch
+    {
+        1 => "About 15 seconds of flame. Light caramel, slow extraction.",
+        2 => "About 30 seconds. A little more color and sweetness.",
+        3 => "About 35 seconds. The classic middle ground.",
+        _ => "About 55 seconds, the alligator char. Deep vanilla and spice, soaks up more.",
+    };
+
+    public void Dispose() => pending?.Cancel();
+}
